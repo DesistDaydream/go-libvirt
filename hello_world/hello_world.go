@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 
-	"github.com/sirupsen/logrus"
 	"libvirt.org/go/libvirt"
 )
 
@@ -21,11 +20,10 @@ func main() {
 
 	fmt.Printf("%d running domains:\n", len(doms))
 	for _, dom := range doms {
-		d, err := dom.GetInfo()
+		name, err := dom.GetName()
 		if err == nil {
-			logrus.Error(d)
+			fmt.Printf("  %s\n", name)
 		}
-		logrus.Info(d)
 		dom.Free()
 	}
 }
