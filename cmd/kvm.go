@@ -11,7 +11,7 @@ import (
 	humanize "github.com/dustin/go-humanize"
 )
 
-// LogInit 日志功能初始化
+// 日志功能初始化
 func LogInit(level, file, format string) error {
 	// 设置日志格式
 	switch format {
@@ -51,21 +51,42 @@ func LogInit(level, file, format string) error {
 	return nil
 }
 
-// 获取虚拟机简要信息
-func GetInfo(conn *libvirt.Connect) {
+// 获取所有状态的虚拟机
+func GetAllDoms(conn *libvirt.Connect) ([]libvirt.Domain, error) {
 	activeDoms, err := conn.ListAllDomains(libvirt.CONNECT_LIST_DOMAINS_ACTIVE)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	inactiveDoms, err := conn.ListAllDomains(libvirt.CONNECT_LIST_DOMAINS_INACTIVE)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	logrus.Infof("当前有 %d 台正在运行的虚拟机", len(activeDoms))
 	logrus.Infof("当前有 %d 台正在关闭的虚拟机", len(inactiveDoms))
 
 	doms := append(activeDoms, inactiveDoms...)
+	return doms, nil
+}
+
+// 获取待操作的虚拟机
+func GetDoms(conn *libvirt.Connect, names []string) ([]libvirt.Domain, error) {
+	var doms []libvirt.Domain
+
+	for _, name := range names {
+		dom, _ := conn.LookupDomainByName(name)
+		doms = append(doms, *dom)
+	}
+
+	return doms, nil
+}
+
+// 获取虚拟机简要信息
+func GetInfo(conn *libvirt.Connect) {
+	doms, err := GetAllDoms(conn)
+	if err != nil {
+		logrus.Panic("获取虚拟机信息异常: ", err)
+	}
 
 	for _, dom := range doms {
 		d, err := dom.GetInfo()
@@ -134,12 +155,18 @@ func Start(doms []libvirt.Domain) error {
 	return nil
 }
 
-func main() {
-	logLevel := pflag.String("log-level", "info", "The logging level:[debug, info, warn, error, fatal]")
-	logFile := pflag.String("log-output", "", "the file which log to, default stdout")
-	logFormat := pflag.String("log-format", "text", "日志输出格式,可选值: text, json, 默认为 text")
+// 创建快照
+func CreateSnapshot(doms []libvirt.Domain) error {
+	return nil
+}
 
-	operation := pflag.String("operation", "", "对虚拟机执行的操作,可选值: start, close,info")
+func main() {
+	logLevel := pflag.StringP("log-level", "l", "info", "日志级别:[debug, info, warn, error, fatal]")
+	logFile := pflag.StringP("log-output", "o", "", "日志输出文件位置,默认为空,输出到标准输出")
+	logFormat := pflag.StringP("log-format", "f", "text", "日志输出格式: text, json")
+
+	target := pflag.StringP("target", "t", "qemu:///system", "要连接的QEMU服务器")
+	operation := pflag.StringP("operation", "p", "", "对虚拟机执行的操作: start, close, info")
 
 	pflag.Parse()
 
@@ -148,17 +175,23 @@ func main() {
 	}
 
 	// 连接到 libvirtd
-	conn, err := libvirt.NewConnect("qemu:///system")
+	conn, err := libvirt.NewConnect(*target)
 	if err != nil {
 		panic(err)
 	}
 	defer conn.Close()
+
+	if operation == nil || *operation == "" {
+		logrus.Fatal("请指定操作")
+	}
 
 	switch *operation {
 	case "start":
 	case "close":
 	case "info":
 		GetInfo(conn)
+	default:
+		logrus.Fatal("不支持的操作")
 	}
 
 }
