@@ -13,13 +13,13 @@ import (
 )
 
 func ListCommand() *cobra.Command {
-	var ListCmd = &cobra.Command{
+	var listCmd = &cobra.Command{
 		Use:   "list",
 		Short: "列出所有虚拟机",
 		Run:   runList,
 	}
 
-	return ListCmd
+	return listCmd
 }
 
 func runList(cmd *cobra.Command, args []string) {

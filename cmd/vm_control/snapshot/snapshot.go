@@ -4,10 +4,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// type SnapshotFlags struct {
-// }
+type SnapshotFlags struct {
+	DomainName   []string
+	SnapshotName string
+}
 
-// var snapshotFlags SnapshotFlags
+var snapshotFlags SnapshotFlags
 
 func CreateCommand() *cobra.Command {
 	snapshotCmd := &cobra.Command{
@@ -16,8 +18,12 @@ func CreateCommand() *cobra.Command {
 		// PersistentPreRun: productsPersistentPreRun,
 	}
 
+	snapshotCmd.PersistentFlags().StringSliceVar(&snapshotFlags.DomainName, "domain", nil, "虚拟机列表")
+	snapshotCmd.PersistentFlags().StringVar(&snapshotFlags.SnapshotName, "snapshot", "", "快照名称")
+
 	snapshotCmd.AddCommand(
-		ListCommand(),
+		listCommand(),
+		createCommand(),
 	)
 
 	return snapshotCmd
