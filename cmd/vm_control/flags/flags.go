@@ -3,12 +3,17 @@ package flags
 import logging "github.com/DesistDaydream/logging/pkg/logrus_init"
 
 type Flags struct {
-	Hosts      []string
+	IPs        []string
 	ConfigPath string
 	ConfigName string
 }
 
+type DomainFlags struct {
+	DomainsName []string
+}
+
 var (
-	F Flags
-	L logging.LogrusFlags
+	F  Flags
+	DF DomainFlags
+	L  logging.LogrusFlags
 )

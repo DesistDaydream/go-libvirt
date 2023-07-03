@@ -1,13 +1,10 @@
 package domain
 
 import (
+	"github.com/DesistDaydream/go-libvirt/cmd/vm_control/domain/snapshot"
+	"github.com/DesistDaydream/go-libvirt/cmd/vm_control/flags"
 	"github.com/spf13/cobra"
 )
-
-// type DomainFlags struct {
-// }
-
-// var domainFlags DomainFlags
 
 func CreateCommand() *cobra.Command {
 	domainCmd := &cobra.Command{
@@ -16,8 +13,12 @@ func CreateCommand() *cobra.Command {
 		// PersistentPreRun: productsPersistentPreRun,
 	}
 
+	domainCmd.PersistentFlags().StringSliceVar(&flags.DF.DomainsName, "domains", nil, "虚拟机列表")
+
 	domainCmd.AddCommand(
-		ListCommand(),
+		listCommand(),
+		shutdownCommand(),
+		snapshot.CreateCommand(),
 	)
 
 	return domainCmd

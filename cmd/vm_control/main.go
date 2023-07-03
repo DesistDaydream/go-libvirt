@@ -10,7 +10,7 @@ import (
 
 	"github.com/DesistDaydream/go-libvirt/cmd/vm_control/domain"
 	"github.com/DesistDaydream/go-libvirt/cmd/vm_control/flags"
-	"github.com/DesistDaydream/go-libvirt/cmd/vm_control/snapshot"
+
 	"github.com/DesistDaydream/go-libvirt/pkg/handler"
 )
 
@@ -35,14 +35,13 @@ func newApp() *cobra.Command {
 	cobra.OnInitialize(initConfig)
 
 	logging.AddFlags(&flags.L)
-	RootCmd.PersistentFlags().StringSliceVar(&flags.F.Hosts, "hosts", nil, "宿主机列表")
+	RootCmd.PersistentFlags().StringSliceVar(&flags.F.IPs, "ips", nil, "宿主机 IP 列表")
 	// RootCmd.PersistentFlags().StringVar(&flags.ConfigPath, "config-path", "", "配置文件路径")
 	// RootCmd.PersistentFlags().StringVar(&flags.ConfigName, "config-name", "", "配置文件名称")
 
 	// 添加子命令
 	RootCmd.AddCommand(
 		domain.CreateCommand(),
-		snapshot.CreateCommand(),
 	)
 
 	return RootCmd
@@ -54,5 +53,5 @@ func initConfig() {
 		logrus.Fatal("初始化日志失败", err)
 	}
 
-	handler.NewHandler()
+	handler.NewLibvirtConnect()
 }

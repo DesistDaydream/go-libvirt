@@ -12,7 +12,7 @@ import (
 	"libvirt.org/go/libvirt"
 )
 
-func ListCommand() *cobra.Command {
+func listCommand() *cobra.Command {
 	var listCmd = &cobra.Command{
 		Use:   "list",
 		Short: "列出所有虚拟机",

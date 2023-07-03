@@ -1,6 +1,8 @@
 package snapshot
 
 import (
+	"github.com/DesistDaydream/go-libvirt/cmd/vm_control/flags"
+	"github.com/DesistDaydream/go-libvirt/pkg/handler"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"libvirt.org/go/libvirt"
@@ -17,16 +19,16 @@ func deleteCommand() *cobra.Command {
 }
 
 func runDelete(cmd *cobra.Command, args []string) {
-	if snapshotFlags.SnapshotName == "" || snapshotFlags.DomainName == nil {
+	if snapshotFlags.SnapshotName == "" || flags.DF.DomainsName == nil {
 		logrus.Fatal("请指定快照名称和虚拟机名称")
 	}
 
-	nhds := findNeedHandleDomains()
+	domains := handler.FindNeedHandleDomains(flags.DF.DomainsName)
 
-	for _, n := range nhds {
-		snapshot, err := n.domain.SnapshotLookupByName(snapshotFlags.SnapshotName, 0)
+	for _, d := range domains {
+		snapshot, err := d.VirDomain.SnapshotLookupByName(snapshotFlags.SnapshotName, 0)
 		if err != nil {
-			logrus.Errorf("无法在【%v】中找到【%v】快照，原因: %v", n.domainName, snapshotFlags.SnapshotName, err)
+			logrus.Errorf("无法在【%v】中找到【%v】快照，原因: %v", d.DomainName, snapshotFlags.SnapshotName, err)
 			continue
 		}
 		defer snapshot.Free()
@@ -37,7 +39,7 @@ func runDelete(cmd *cobra.Command, args []string) {
 			continue
 		}
 
-		logrus.Infof("已成功删除 %v 中的 %v 快照", n.domainName, snapshotFlags.SnapshotName)
+		logrus.Infof("已成功删除 %v 中的 %v 快照", d.DomainName, snapshotFlags.SnapshotName)
 	}
 }
 
