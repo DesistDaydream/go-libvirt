@@ -43,7 +43,6 @@ func runCreate(cmd *cobra.Command, args []string) {
 			}
 
 			dName, _ := domain.GetName()
-
 			logrus.Debugf("开始处理 %v", dName)
 
 			domainSnapshot, err := domain.CreateSnapshotXML(xml, 0)

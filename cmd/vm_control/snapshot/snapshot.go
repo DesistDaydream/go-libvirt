@@ -24,6 +24,7 @@ func CreateCommand() *cobra.Command {
 	snapshotCmd.AddCommand(
 		listCommand(),
 		createCommand(),
+		deleteCommand(),
 	)
 
 	return snapshotCmd

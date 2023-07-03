@@ -53,5 +53,6 @@ func initConfig() {
 	if err := logging.LogrusInit(&flags.L); err != nil {
 		logrus.Fatal("初始化日志失败", err)
 	}
+
 	handler.NewHandler()
 }
