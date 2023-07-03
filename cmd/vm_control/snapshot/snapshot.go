@@ -1,7 +1,10 @@
 package snapshot
 
 import (
+	"github.com/DesistDaydream/go-libvirt/pkg/handler"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"libvirt.org/go/libvirt"
 )
 
 type SnapshotFlags struct {
@@ -28,4 +31,34 @@ func CreateCommand() *cobra.Command {
 	)
 
 	return snapshotCmd
+}
+
+type needHandleDomain struct {
+	hostName   string
+	domainName string
+	domain     *libvirt.Domain
+}
+
+var nhds []needHandleDomain
+
+func findNeedHandleDomains() []needHandleDomain {
+	for _, conn := range handler.Conns {
+		hostname, _ := conn.GetHostname()
+		for _, dName := range snapshotFlags.DomainName {
+			domain, _ := conn.LookupDomainByName(dName)
+			if domain != nil {
+				nhds = append(nhds, needHandleDomain{
+					hostName:   hostname,
+					domainName: dName,
+					domain:     domain,
+				})
+			}
+		}
+	}
+
+	for _, n := range nhds {
+		logrus.Debugf("在 %v 上找到需要处理的虚拟机: %v", n.hostName, n.domainName)
+	}
+
+	return nhds
 }
