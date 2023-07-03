@@ -29,7 +29,9 @@ func runShutdown(cmd *cobra.Command, args []string) {
 
 		err := d.VirDomain.Shutdown()
 		if err != nil {
-			logrus.Errorf("关机失败，原因: %v", err)
+			logrus.Errorf("%v 关机失败，原因: %v", dName, err)
+		} else {
+			logrus.Infof("%v 关机成功", dName)
 		}
 	}
 }

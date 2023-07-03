@@ -27,9 +27,11 @@ func runStart(cmd *cobra.Command, args []string) {
 		dName, _ := d.VirDomain.GetName()
 		logrus.Debugf("开始处理 %v", dName)
 
-		// err := d.VirDomain.
-		// if err != nil {
-		// 	logrus.Errorf("开机失败，原因: %v", err)
-		// }
+		err := d.VirDomain.Create()
+		if err != nil {
+			logrus.Errorf("%v 开机失败，原因: %v", dName, err)
+		} else {
+			logrus.Infof("%v 开机成功", dName)
+		}
 	}
 }

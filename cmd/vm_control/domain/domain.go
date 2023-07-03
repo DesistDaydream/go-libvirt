@@ -17,6 +17,7 @@ func CreateCommand() *cobra.Command {
 
 	domainCmd.AddCommand(
 		listCommand(),
+		startCommand(),
 		shutdownCommand(),
 		snapshot.CreateCommand(),
 	)
