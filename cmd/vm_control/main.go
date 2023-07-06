@@ -42,6 +42,7 @@ func newApp() *cobra.Command {
 	rootCmd.PersistentFlags().StringSliceVar(&flags.F.IPs, "ips", nil, "宿主机 IP 列表")
 	// RootCmd.PersistentFlags().StringVar(&flags.ConfigPath, "config-path", "", "配置文件路径")
 	// RootCmd.PersistentFlags().StringVar(&flags.ConfigName, "config-name", "", "配置文件名称")
+	// rootCmd.MarkPersistentFlagRequired("ips")
 
 	// 添加子命令
 	rootCmd.AddCommand(
@@ -54,7 +55,7 @@ func newApp() *cobra.Command {
 // 执行每个 root 下的子命令时，都需要执行的函数
 func initConfig() {
 	if err := logging.LogrusInit(&flags.L); err != nil {
-		logrus.Fatal("初始化日志失败", err)
+		logrus.Fatalf("初始化日志失败: %v", err)
 	}
 
 	viper.SetConfigName("my_config")

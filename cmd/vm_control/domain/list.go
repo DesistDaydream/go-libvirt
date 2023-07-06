@@ -16,13 +16,13 @@ func listCommand() *cobra.Command {
 	var listCmd = &cobra.Command{
 		Use:   "list",
 		Short: "列出所有虚拟机",
-		Run:   runList,
+		RunE:  runList,
 	}
 
 	return listCmd
 }
 
-func runList(cmd *cobra.Command, args []string) {
+func runList(cmd *cobra.Command, args []string) error {
 	for _, conn := range handler.Conns {
 		defer conn.Close()
 
@@ -75,4 +75,5 @@ func runList(cmd *cobra.Command, args []string) {
 		fmt.Printf("当前服务器共有 %.2f GiB 内存，已分配给虚拟机 %.2f GiB 内存\n", float64(nodeInfo.Memory/1024/1024), float64(allMem/1024/1024))
 	}
 
+	return nil
 }

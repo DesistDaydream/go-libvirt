@@ -10,6 +10,10 @@ import (
 var Conns []*libvirt.Connect
 
 func NewLibvirtConnect(ips []string) {
+	if len(ips) < 1 {
+		logrus.Fatalf("请使用配置文件或 --ips 指定要连接的 libvirtd")
+	}
+
 	for _, host := range ips {
 		conn, err := libvirt.NewConnect(fmt.Sprintf("qemu+tcp://%s/system", host))
 		if err != nil {
