@@ -3,18 +3,17 @@ package handler
 import (
 	"fmt"
 
-	"github.com/DesistDaydream/go-libvirt/cmd/vm_control/flags"
 	"github.com/sirupsen/logrus"
 	"libvirt.org/go/libvirt"
 )
 
 var Conns []*libvirt.Connect
 
-func NewLibvirtConnect() {
-	for _, hosts := range flags.F.IPs {
-		conn, err := libvirt.NewConnect(fmt.Sprintf("qemu+tcp://%s/system", hosts))
+func NewLibvirtConnect(ips []string) {
+	for _, host := range ips {
+		conn, err := libvirt.NewConnect(fmt.Sprintf("qemu+tcp://%s/system", host))
 		if err != nil {
-			panic(err)
+			logrus.Fatalf("无法连接到 %v，原因: %v", host, err)
 		}
 		Conns = append(Conns, conn)
 	}

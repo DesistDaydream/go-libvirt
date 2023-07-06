@@ -23,7 +23,6 @@ func listCommand() *cobra.Command {
 }
 
 func runList(cmd *cobra.Command, args []string) {
-
 	if flags.DF.DomainsName != nil {
 		domains := handler.FindNeedHandleDomains(flags.DF.DomainsName)
 		for _, d := range domains {
