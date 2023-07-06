@@ -1,8 +1,0 @@
-ips:
-  - "172.38.180.97"
-  - "172.38.180.95"
-  - "172.38.180.96"
-domain:
-  domains:
-    - "tj-test-common-kvm"
-    - "tj-test-spst-common-centos7"
