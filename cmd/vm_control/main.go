@@ -40,9 +40,8 @@ func newApp() *cobra.Command {
 
 	logging.AddFlags(&flags.L)
 	rootCmd.PersistentFlags().StringSliceVar(&flags.F.IPs, "ips", nil, "宿主机 IP 列表")
-	// RootCmd.PersistentFlags().StringVar(&flags.ConfigPath, "config-path", "", "配置文件路径")
-	// RootCmd.PersistentFlags().StringVar(&flags.ConfigName, "config-name", "", "配置文件名称")
-	// rootCmd.MarkPersistentFlagRequired("ips")
+	rootCmd.PersistentFlags().StringVar(&flags.F.ConfigPath, "config-path", ".", "配置文件路径")
+	rootCmd.PersistentFlags().StringVar(&flags.F.ConfigName, "config-name", "my_config", "配置文件名称")
 
 	// 添加子命令
 	rootCmd.AddCommand(
@@ -58,8 +57,8 @@ func initConfig() {
 		logrus.Fatalf("初始化日志失败: %v", err)
 	}
 
-	viper.SetConfigName("my_config")
-	viper.AddConfigPath(".")
+	viper.SetConfigName(flags.F.ConfigName)
+	viper.AddConfigPath(flags.F.ConfigPath)
 	// viper.AutomaticEnv()
 
 	if err := viper.ReadInConfig(); err != nil {
