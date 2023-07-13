@@ -18,7 +18,7 @@ func CreateCommand() *cobra.Command {
 
 	cobra.OnInitialize(initConfig)
 
-	domainCmd.PersistentFlags().StringSliceVar(&flags.DF.DomainsName, "domains", nil, "虚拟机列表")
+	domainCmd.PersistentFlags().StringSliceVarP(&flags.DF.DomainsName, "domains", "d", nil, "虚拟机列表")
 
 	domainCmd.AddCommand(
 		listCommand(),
