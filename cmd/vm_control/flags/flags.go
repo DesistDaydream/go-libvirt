@@ -16,5 +16,5 @@ type DomainFlags struct {
 var (
 	F  Flags
 	DF DomainFlags
-	L  logging.LogrusFlags
+	LF logging.LogrusFlags
 )

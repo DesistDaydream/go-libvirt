@@ -38,7 +38,7 @@ func newApp() *cobra.Command {
 
 	cobra.OnInitialize(initConfig)
 
-	logging.AddFlags(&flags.L)
+	logging.AddFlags(&flags.LF)
 	rootCmd.PersistentFlags().StringSliceVar(&flags.F.IPs, "ips", nil, "宿主机 IP 列表")
 	rootCmd.PersistentFlags().StringVar(&flags.F.ConfigPath, "config-path", ".", "配置文件路径")
 	rootCmd.PersistentFlags().StringVar(&flags.F.ConfigName, "config-name", "my_config", "配置文件名称")
@@ -53,7 +53,7 @@ func newApp() *cobra.Command {
 
 // 执行每个 root 下的子命令时，都需要执行的函数
 func initConfig() {
-	if err := logging.LogrusInit(&flags.L); err != nil {
+	if err := logging.LogrusInit(&flags.LF); err != nil {
 		logrus.Fatalf("初始化日志失败: %v", err)
 	}
 
