@@ -1,72 +1,36 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
-	logging "github.com/DesistDaydream/logging/pkg/logrus_init"
-
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
+	"github.com/DesistDaydream/go-libvirt/cmd/vm_control/app"
 	"github.com/DesistDaydream/go-libvirt/cmd/vm_control/domain"
-	"github.com/DesistDaydream/go-libvirt/cmd/vm_control/flags"
-
-	"github.com/DesistDaydream/go-libvirt/pkg/handler"
+	"github.com/DesistDaydream/go-libvirt/cmd/vm_control/host"
 )
 
 func main() {
-	app := newApp()
-	err := app.Execute()
-	if err != nil {
+	a := app.New()
+	defer a.Close()
+
+	if err := newRootCommand(a).Execute(); err != nil {
 		os.Exit(1)
 	}
 }
 
-var rootCmd *cobra.Command
-
-func newApp() *cobra.Command {
-	var long string = ``
-
-	rootCmd = &cobra.Command{
+func newRootCommand(a *app.App) *cobra.Command {
+	root := &cobra.Command{
 		Use:   "vm-control",
-		Short: "KVM/QEMU 虚拟机管理",
-		Long:  long,
-		// PersistentPreRun: rootPersistentPreRun,
+		Short: "KVM/QEMU 虚拟机批量管理",
+		Long: `基于 libvirt 的虚拟机批量管理工具。
+
+一次连接多台宿主机，按名称、glob 或状态选择虚拟机，批量执行开关机与
+快照操作，并逐台汇总执行结果。连接只建立一次，命令执行期间保持有效。`,
+		SilenceUsage: true,
 	}
 
-	cobra.OnInitialize(initConfig)
-
-	logging.AddFlags(&flags.LF)
-	rootCmd.PersistentFlags().StringSliceVar(&flags.F.IPs, "ips", nil, "宿主机 IP 列表")
-	rootCmd.PersistentFlags().StringVar(&flags.F.ConfigPath, "config-path", ".", "配置文件路径")
-	rootCmd.PersistentFlags().StringVar(&flags.F.ConfigName, "config-name", "my_config", "配置文件名称")
-
-	// 添加子命令
-	rootCmd.AddCommand(
-		domain.CreateCommand(),
-	)
-
-	return rootCmd
-}
-
-// 执行每个 root 下的子命令时，都需要执行的函数
-func initConfig() {
-	if err := logging.LogrusInit(&flags.LF); err != nil {
-		logrus.Fatalf("初始化日志失败: %v", err)
-	}
-
-	viper.SetConfigName(flags.F.ConfigName)
-	viper.AddConfigPath(flags.F.ConfigPath)
-	// viper.AutomaticEnv()
-
-	if err := viper.ReadInConfig(); err != nil {
-		fmt.Println("Failed to read config file:", err)
-		return
-	}
-	viper.BindPFlags(rootCmd.Flags())
-	ips := viper.GetStringSlice("ips")
-
-	handler.NewLibvirtConnect(ips)
+	a.AddRootFlags(root)
+	root.AddCommand(domain.CreateCommand(a), host.CreateCommand(a))
+	return root
 }

@@ -1,37 +1,37 @@
 package domain
 
 import (
-	"github.com/DesistDaydream/go-libvirt/cmd/vm_control/flags"
-	"github.com/DesistDaydream/go-libvirt/pkg/handler"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+
+	"github.com/DesistDaydream/go-libvirt/cmd/vm_control/app"
+	"github.com/DesistDaydream/go-libvirt/pkg/virt"
 )
 
-func startCommand() *cobra.Command {
-	var startCmd = &cobra.Command{
+func startCommand(a *app.App) *cobra.Command {
+	return &cobra.Command{
 		Use:   "start",
-		Short: "开启指定虚拟机",
-		Run:   runStart,
+		Short: "开启虚拟机",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runStart(a)
+		},
 	}
-
-	return startCmd
 }
 
-func runStart(cmd *cobra.Command, args []string) {
-	if flags.DF.DomainsName == nil {
-		logrus.Fatal("请指定虚拟机名称")
+func runStart(a *app.App) error {
+	selection, err := a.Select(true)
+	if err != nil {
+		return err
 	}
 
-	domains := handler.FindNeedHandleDomains(flags.DF.DomainsName)
-	for _, d := range domains {
-		dName, _ := d.VirDomain.GetName()
-		logrus.Debugf("开始处理 %v", dName)
-
-		err := d.VirDomain.Create()
+	return a.RunBatch("start", selection, func(d *virt.Domain) (string, error) {
+		active, err := d.Vir.IsActive()
 		if err != nil {
-			logrus.Errorf("%v 开机失败，原因: %v", dName, err)
-		} else {
-			logrus.Infof("%v 开机成功", dName)
+			return "", err
 		}
-	}
+		if active {
+			return "已在运行", nil
+		}
+		return "", d.Vir.Create()
+	})
 }

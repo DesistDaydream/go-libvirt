@@ -1,5 +1,0 @@
-package memory
-
-func GetMemoryStats() {
-	//
-}

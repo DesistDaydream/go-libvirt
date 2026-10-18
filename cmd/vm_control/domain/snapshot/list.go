@@ -2,62 +2,81 @@ package snapshot
 
 import (
 	"fmt"
-	"os"
 
-	"github.com/DesistDaydream/go-libvirt/cmd/vm_control/flags"
-	"github.com/DesistDaydream/go-libvirt/pkg/handler"
 	"github.com/olekukonko/tablewriter"
+	"github.com/olekukonko/tablewriter/tw"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"libvirt.org/go/libvirt"
+
+	"github.com/DesistDaydream/go-libvirt/cmd/vm_control/app"
+	"github.com/DesistDaydream/go-libvirt/pkg/virt"
 )
 
-func listCommand() *cobra.Command {
-	var listCmd = &cobra.Command{
+func listCommand(a *app.App) *cobra.Command {
+	return &cobra.Command{
 		Use:   "list",
-		Short: "列出所有快照",
-		Run:   runList,
+		Short: "列出快照",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runList(a)
+		},
 	}
-
-	return listCmd
 }
 
-func runList(cmd *cobra.Command, args []string) {
-	if flags.DF.DomainsName != nil {
-		domains := handler.FindNeedHandleDomains(flags.DF.DomainsName)
-		for _, d := range domains {
-			logrus.Infof("%v 在 %v 服务器上，有如下几个快照:", d.DomainName, d.HostName)
-			snapshots, _ := d.VirDomain.ListAllSnapshots(0)
-			for _, s := range snapshots {
-				sName, _ := s.GetName()
-				logrus.Infof(sName)
-			}
+func runList(a *app.App) error {
+	opts := a.SelectOptions()
+	if !opts.All && len(opts.Names) == 0 {
+		opts.All = true
+	}
+
+	selection, err := virt.Select(a.Pool.Hosts(), opts)
+	if err != nil {
+		return err
+	}
+	defer virt.FreeDomains(selection.Domains)
+
+	table := tablewriter.NewTable(a.Out, tablewriter.WithHeaderAutoFormat(tw.Off))
+	table.Header("宿主机", "虚拟机", "快照", "创建时间", "当前", "描述")
+
+	count := 0
+	for _, d := range selection.Domains {
+		snapshots, err := virt.ListSnapshots(d)
+		if err != nil {
+			return fmt.Errorf("列出 %s/%s 的快照失败: %w", d.Host.Name, d.Name, err)
 		}
-	} else {
-		table := tablewriter.NewWriter(os.Stdout)
-		table.SetHeader([]string{"实例", "快照"})
-
-		for _, conn := range handler.Conns {
-			defer conn.Close()
-
-			curHost, _ := conn.GetHostname()
-			fmt.Printf("======== %v ========\n", curHost)
-
-			doms, err := conn.ListAllDomains(libvirt.CONNECT_LIST_DOMAINS_ACTIVE | libvirt.CONNECT_LIST_DOMAINS_INACTIVE)
-			if err != nil {
-				logrus.Errorf("无法列出 Domain，原因: %v", err)
+		for _, s := range snapshots {
+			created := "-"
+			if !s.CreationTime.IsZero() {
+				created = s.CreationTime.Format("2006-01-02 15:04:05")
 			}
-
-			for _, dom := range doms {
-				dName, _ := dom.GetName()
-				snapshots, _ := dom.ListAllSnapshots(0)
-				for _, s := range snapshots {
-					sName, _ := s.GetName()
-					table.Append([]string{dName, sName})
-				}
+			row := []string{
+				d.Host.Name,
+				d.Name,
+				s.Name,
+				created,
+				yesNo(s.Current),
+				s.Description,
 			}
-			table.Render()
+			if err := table.Append(row); err != nil {
+				return err
+			}
+			count++
 		}
 	}
 
+	if err := table.Render(); err != nil {
+		return err
+	}
+	fmt.Fprintf(a.Out, "共 %d 个快照\n", count)
+	for _, pattern := range selection.Unmatched {
+		logrus.Warnf("未找到匹配的虚拟机: %s", pattern)
+	}
+	return nil
+}
+
+func yesNo(value bool) string {
+	if value {
+		return "是"
+	}
+	return "否"
 }

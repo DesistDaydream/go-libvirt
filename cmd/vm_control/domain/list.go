@@ -2,78 +2,87 @@ package domain
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 
-	"github.com/DesistDaydream/go-libvirt/pkg/handler"
 	"github.com/olekukonko/tablewriter"
-	"github.com/sirupsen/logrus"
+	"github.com/olekukonko/tablewriter/tw"
 	"github.com/spf13/cobra"
-	"libvirt.org/go/libvirt"
+
+	"github.com/DesistDaydream/go-libvirt/cmd/vm_control/app"
+	"github.com/DesistDaydream/go-libvirt/pkg/virt"
 )
 
-func listCommand() *cobra.Command {
-	var listCmd = &cobra.Command{
+func listCommand(a *app.App) *cobra.Command {
+	return &cobra.Command{
 		Use:   "list",
 		Short: "列出所有虚拟机",
-		RunE:  runList,
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runList(a)
+		},
 	}
-
-	return listCmd
 }
 
-func runList(cmd *cobra.Command, args []string) error {
-	for _, conn := range handler.Conns {
-		defer conn.Close()
+func runList(a *app.App) error {
+	domains, err := a.Pool.AllDomains()
+	if err != nil {
+		return err
+	}
+	defer virt.FreeDomains(domains)
 
-		var (
-			allCPU int
-			allMem float64
-		)
+	for _, host := range a.Pool.Hosts() {
+		fmt.Fprintf(a.Out, "======== %s ========\n", host.Name)
 
-		curHost, _ := conn.GetHostname()
-		fmt.Printf("======== %v ========\n", curHost)
+		table := tablewriter.NewTable(a.Out, tablewriter.WithHeaderAutoFormat(tw.Off))
+		table.Header("实例", "状态", "vCPU", "内存(GiB)", "自动启动")
 
-		table := tablewriter.NewWriter(os.Stdout)
-
-		table.SetHeader([]string{"实例", "状态", "CPU", "CPU使用率", "内存", "内存使用率"})
-
-		conn.ListDomains()
-
-		doms, err := conn.ListAllDomains(libvirt.CONNECT_LIST_DOMAINS_ACTIVE | libvirt.CONNECT_LIST_DOMAINS_INACTIVE)
-		if err != nil {
-			logrus.Errorf("无法列出 Domain，原因: %v", err)
-		}
-
-		for _, dom := range doms {
-			var domStat string
-
-			domName, _ := dom.GetName()
-
-			domInfo, _ := dom.GetInfo()
-			if domInfo.State == 1 {
-				domStat = fmt.Sprintf("\033[0;37;42m%s\033[0m", "开机")
-			} else {
-				domStat = fmt.Sprintf("\033[0;37;41m%s\033[0m", "未开机")
+		var allocatedCPU uint
+		var allocatedMem uint64
+		for _, d := range domains {
+			if d.Host != host {
+				continue
 			}
 
-			// cpuUsage, _ := domainCpuUsage(dom)
+			info, err := d.Vir.GetInfo()
+			if err != nil {
+				return fmt.Errorf("读取 %s/%s 信息失败: %w", host.Name, d.Name, err)
+			}
+			autostart, _ := d.Vir.GetAutostart()
 
-			table.Append([]string{domName, domStat, strconv.Itoa(int(domInfo.NrVirtCpu)), "", fmt.Sprintf("%.2f GiB", float64(domInfo.Memory)/1024/1024), ""})
+			row := []string{
+				d.Name,
+				virt.StateText(info.State),
+				strconv.Itoa(int(info.NrVirtCpu)),
+				fmt.Sprintf("%.2f", float64(info.MaxMem)/1024/1024),
+				yesNo(autostart),
+			}
+			if err := table.Append(row); err != nil {
+				return err
+			}
 
-			allCPU = allCPU + int(domInfo.NrVirtCpu)
-			allMem = allMem + float64(domInfo.Memory)
-
-			dom.Free()
+			allocatedCPU += info.NrVirtCpu
+			allocatedMem += info.MaxMem
 		}
 
-		table.Render()
+		if err := table.Render(); err != nil {
+			return err
+		}
 
-		nodeInfo, _ := conn.GetNodeInfo()
-
-		fmt.Printf("当前服务器共有 %v CPU，已分配给虚拟机 %v CPU\n", nodeInfo.Cpus, allCPU)
-		fmt.Printf("当前服务器共有 %.2f GiB 内存，已分配给虚拟机 %.2f GiB 内存\n", float64(nodeInfo.Memory/1024/1024), float64(allMem/1024/1024))
+		node, err := host.Conn.GetNodeInfo()
+		if err != nil {
+			return fmt.Errorf("读取 %s 节点信息失败: %w", host.Name, err)
+		}
+		fmt.Fprintf(a.Out, "共 %d vCPU，已分配 %d；共 %.2f GiB 内存，已分配 %.2f GiB\n\n",
+			node.Cpus, allocatedCPU,
+			float64(node.Memory)/1024/1024, float64(allocatedMem)/1024/1024)
 	}
 
 	return nil
+}
+
+func yesNo(value bool) string {
+	if value {
+		return "是"
+	}
+	return "否"
 }

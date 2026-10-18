@@ -1,7 +1,4 @@
-
-.vscode/sftp.json
-vendor/
-kvm
-main
-my_config.yaml.bak
-my_config.yaml
+.vscode/sftp.json*
+/.tmp-*/
+vm-control
+my_config.yaml*

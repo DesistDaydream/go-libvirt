@@ -1,53 +1,53 @@
 package snapshot
 
 import (
-	"fmt"
+	"errors"
 
-	"github.com/DesistDaydream/go-libvirt/cmd/vm_control/flags"
-	"github.com/DesistDaydream/go-libvirt/pkg/handler"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+
+	"github.com/DesistDaydream/go-libvirt/cmd/vm_control/app"
+	"github.com/DesistDaydream/go-libvirt/pkg/virt"
 )
 
-func createCommand() *cobra.Command {
-	var createCmd = &cobra.Command{
+func createCommand(a *app.App) *cobra.Command {
+	cmd := &cobra.Command{
 		Use:   "create",
-		Short: "创建快照",
-		Run:   runCreate,
+		Short: "创建内部快照",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runCreate(a)
+		},
 	}
 
-	return createCmd
+	pf := cmd.Flags()
+	pf.StringVar(&a.Flags.SnapshotDescription, "description", "", "快照描述")
+	pf.BoolVar(&a.Flags.SnapshotMemory, "memory", false, "同时保存内存状态（内部快照）")
+	pf.BoolVar(&a.Flags.SnapshotQuiesce, "quiesce", false, "要求 guest agent 冻结文件系统")
+
+	return cmd
 }
 
-func runCreate(cmd *cobra.Command, args []string) {
-	if snapshotFlags.SnapshotName == "" || flags.DF.DomainsName == nil {
-		logrus.Fatal("请指定快照名称和虚拟机名称")
+func runCreate(a *app.App) error {
+	if a.Flags.SnapshotName == "" {
+		return errors.New("请用 --snapshot 指定快照名称")
 	}
 
-	var xml string = fmt.Sprintf(`
-<domainsnapshot>
-	<name>%s</name>
-	<memory snapshot='no'/>
-	<disks>
-	<disk name='vda' snapshot='internal'/>
-	</disks>
-</domainsnapshot>
-`, snapshotFlags.SnapshotName)
+	selection, err := a.Select(true)
+	if err != nil {
+		return err
+	}
 
-	domains := handler.FindNeedHandleDomains(flags.DF.DomainsName)
+	opts := virt.SnapshotOptions{
+		Name:        a.Flags.SnapshotName,
+		Description: a.Flags.SnapshotDescription,
+		Memory:      a.Flags.SnapshotMemory,
+		Quiesce:     a.Flags.SnapshotQuiesce,
+	}
 
-	for _, d := range domains {
-		dName, _ := d.VirDomain.GetName()
-		logrus.Debugf("开始处理 %v", dName)
-
-		domainSnapshot, err := d.VirDomain.CreateSnapshotXML(xml, 0)
-		if err != nil {
-			logrus.Errorf("创建快照失败，原因: %v", err)
-			continue
-		} else {
-			logrus.Infof("创建快照成功")
-			sName, _ := domainSnapshot.GetName()
-			logrus.Debugf("检查创建的快照名称: %v", sName)
+	return a.RunBatch("snapshot create "+a.Flags.SnapshotName, selection, func(d *virt.Domain) (string, error) {
+		if _, err := virt.CreateSnapshot(d, opts); err != nil {
+			return "", err
 		}
-	}
+		return "", nil
+	})
 }
