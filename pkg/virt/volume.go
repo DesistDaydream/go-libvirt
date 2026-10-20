@@ -109,6 +109,82 @@ func openImageVolume(host *Host, path string) (*libvirt.StorageVol, func(), erro
 	}, nil
 }
 
+func createCloudInitVolume(host *Host, poolName, name string, data []byte) (*libvirt.StorageVol, string, error) {
+	pool, err := host.Conn.LookupStoragePoolByName(poolName)
+	if err != nil {
+		return nil, "", fmt.Errorf("查找存储池 %s 失败: %w", poolName, err)
+	}
+	defer pool.Free()
+
+	var poolDoc struct {
+		Target struct {
+			Path string `xml:"path"`
+		} `xml:"target"`
+	}
+	desc, err := pool.GetXMLDesc(0)
+	if err != nil {
+		return nil, "", fmt.Errorf("读取存储池 %s XML 失败: %w", poolName, err)
+	}
+	if err := xml.Unmarshal([]byte(desc), &poolDoc); err != nil {
+		return nil, "", fmt.Errorf("解析存储池 %s XML 失败: %w", poolName, err)
+	}
+	if poolDoc.Target.Path == "" {
+		return nil, "", fmt.Errorf("存储池 %s 没有 target path", poolName)
+	}
+
+	path := filepath.Join(poolDoc.Target.Path, name+"-seed.iso")
+	if existing, err := host.Conn.LookupStorageVolByPath(path); err == nil {
+		_ = existing.Free()
+		return nil, "", fmt.Errorf("seed 卷已存在: %s", path)
+	}
+
+	volumeXML := fmt.Sprintf("<volume><name>%s</name><capacity>%d</capacity><allocation>0</allocation>"+
+		"<target><path>%s</path><format type='raw'/></target></volume>",
+		escapeXML(filepath.Base(path)), len(data), escapeXML(path))
+
+	volume, err := pool.StorageVolCreateXML(volumeXML, libvirt.StorageVolCreateFlags(0))
+	if err != nil {
+		return nil, "", fmt.Errorf("创建 seed 卷 %s 失败: %w", path, err)
+	}
+
+	stream, err := host.Conn.NewStream(0)
+	if err != nil {
+		_ = volume.Delete(libvirt.StorageVolDeleteFlags(0))
+		_ = volume.Free()
+		return nil, "", fmt.Errorf("创建 seed 上传流失败: %w", err)
+	}
+	cleanup := func() {
+		_ = stream.Abort()
+		_ = stream.Free()
+		_ = volume.Delete(libvirt.StorageVolDeleteFlags(0))
+		_ = volume.Free()
+	}
+
+	if err := volume.Upload(stream, 0, uint64(len(data)), libvirt.StorageVolUploadFlags(0)); err != nil {
+		cleanup()
+		return nil, "", fmt.Errorf("上传 seed 卷 %s 失败: %w", path, err)
+	}
+	for offset := 0; offset < len(data); {
+		n, err := stream.Send(data[offset:])
+		if err != nil {
+			cleanup()
+			return nil, "", fmt.Errorf("发送 seed 数据失败: %w", err)
+		}
+		if n == 0 {
+			cleanup()
+			return nil, "", fmt.Errorf("发送 seed 数据失败: 没有进展")
+		}
+		offset += n
+	}
+	if err := stream.Finish(); err != nil {
+		cleanup()
+		return nil, "", fmt.Errorf("完成 seed 上传失败: %w", err)
+	}
+	_ = stream.Free()
+
+	return volume, path, nil
+}
+
 func volumeXML(plan diskPlan) string {
 	var b strings.Builder
 	b.WriteString("<volume>")

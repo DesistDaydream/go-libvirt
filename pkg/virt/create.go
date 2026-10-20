@@ -7,6 +7,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"libvirt.org/go/libvirt"
+
+	"github.com/DesistDaydream/go-libvirt/pkg/cloudinit"
 )
 
 // CreateSpec 是创建虚拟机所需的全部输入。
@@ -18,7 +20,10 @@ type CreateSpec struct {
 	MaxMemory              uint64 // bytes
 	RootVolume             uint64 // bytes
 	Volumes                []CreateVolume
-	IP                     string
+	IP                     string // CIDR
+	Gateway                string
+	DNS                    []string
+	MgmtNICName            string
 	MgmtNICBridge          string
 	MacvtapPassthroughNICs []string
 	PCIPassthroughNICs     []string
@@ -39,6 +44,23 @@ type CreateOptions struct {
 	Start  bool
 	DryRun bool
 	Out    io.Writer
+}
+
+func buildCloudInit(spec CreateSpec, mac string) (*cloudinit.Config, error) {
+	if spec.IP == "" {
+		return nil, nil
+	}
+	if spec.ISO != "" {
+		return nil, errors.New("iso 安装模式不能同时配置 ip")
+	}
+	return cloudinit.New(cloudinit.Config{
+		Name:    spec.Name,
+		NICName: spec.MgmtNICName,
+		MAC:     mac,
+		Address: spec.IP,
+		Gateway: spec.Gateway,
+		DNS:     spec.DNS,
+	})
 }
 
 // CreateDomain 依据基础 XML 和 CreateSpec 创建磁盘、定义并启动虚拟机。
@@ -64,26 +86,52 @@ func CreateDomain(host *Host, spec CreateSpec, opts CreateOptions) error {
 	if err := validateMacvtapPassthroughNICs(host, spec.MacvtapPassthroughNICs); err != nil {
 		return err
 	}
+	if spec.Pool == "" {
+		spec.Pool = "default"
+	}
 
 	volumes, err := createVolumes(host, spec, plan.Disks)
 	if err != nil {
 		return err
 	}
 
-	reservation, err := reserveDHCP(host, plan, spec)
-	if err != nil {
-		deleteVolumes(volumes)
-		return err
+	var seedVolume *libvirt.StorageVol
+	seedPath := ""
+	if plan.CloudInit != nil {
+		seedISO, err := cloudinit.BuildISO(*plan.CloudInit)
+		if err != nil {
+			deleteVolumes(volumes)
+			return err
+		}
+		seedVolume, seedPath, err = createCloudInitVolume(host, spec.Pool, spec.Name, seedISO)
+		if err != nil {
+			deleteVolumes(volumes)
+			return err
+		}
 	}
 
-	domain, err := host.Conn.DomainDefineXML(plan.XML)
+	xml := plan.XML
+	if seedPath != "" {
+		xml, err = attachCloudInitSeed(xml, seedPath)
+		if err != nil {
+			deleteVolumes(append(volumes, seedVolume))
+			return err
+		}
+	}
+
+	domain, err := host.Conn.DomainDefineXML(xml)
 	if err != nil {
+		if seedVolume != nil {
+			volumes = append(volumes, seedVolume)
+		}
 		deleteVolumes(volumes)
-		reservation.remove()
 		return fmt.Errorf("定义虚拟机失败: %w", err)
 	}
 	defer domain.Free()
 	freeVolumes(volumes)
+	if seedVolume != nil {
+		_ = seedVolume.Free()
+	}
 
 	if opts.Start {
 		if err := domain.Create(); err != nil {
@@ -102,12 +150,21 @@ func CreateDomain(host *Host, spec CreateSpec, opts CreateOptions) error {
 	if spec.MgmtNICBridge != "" {
 		fmt.Fprintf(opts.Out, "  网桥: %s\n", spec.MgmtNICBridge)
 	}
+	if seedPath != "" {
+		fmt.Fprintf(opts.Out, "  seed: %s\n", seedPath)
+	}
 	return nil
 }
 
 func printCreatePlan(w io.Writer, plan *createPlan) error {
 	for _, disk := range plan.Disks {
 		fmt.Fprintf(w, "===== 磁盘 %s =====\n%s\n\n", disk.Path, volumeXML(disk))
+	}
+	if plan.CloudInit != nil {
+		fmt.Fprintf(w, "===== cloud-init meta-data =====\n%s\n", plan.CloudInit.MetaData())
+		fmt.Fprintf(w, "===== cloud-init user-data =====\n%s\n", plan.CloudInit.UserData())
+		fmt.Fprintf(w, "===== cloud-init network-config =====\n%s\n", plan.CloudInit.NetworkConfig())
+		fmt.Fprintf(w, "# seed 在创建时上传为 %s-seed.iso，并作为 scsi cdrom 挂载\n\n", plan.CloudInit.Name)
 	}
 	fmt.Fprintf(w, "===== 虚拟机 XML =====\n%s\n", plan.XML)
 	return nil

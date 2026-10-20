@@ -21,9 +21,15 @@ var longHelp string = `根据 domain-list.yaml 创建一台虚拟机。
 
 网络与直通：
   mgmt_nic_bridge  管理网卡使用的网桥
-  ip               写入对应 libvirt 网络的静态 DHCP
+  ip               静态 IPv4 CIDR（如 10.10.22.180/23）
+  mgmt_nic_name    guest 内管理网卡名，默认 enp1s0
+  gateway          静态 IP 的网关
+  dns              静态 IP 的 DNS，可重复
   macvtap_passthrough_nics 宿主机镜像口列表，每个口增加一块 virtio（macvtap passthrough）；与 pci_passthrough_nics 互斥
   pci_passthrough_nics     宿主机 PCI 地址列表，整卡直通；创建前会检查 IOMMU group
+
+配置 ip 后会生成 cloud-init NoCloud seed ISO 并挂成 cdrom；基础镜像里必须已安装并启用 cloud-init，
+且不要再写死静态网卡配置。
 
 示例：
   vm-control --ips 10.10.22.62 domain create -f domain-list.yaml hdf-01

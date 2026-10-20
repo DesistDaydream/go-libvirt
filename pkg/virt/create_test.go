@@ -52,7 +52,8 @@ func TestBuildCreatePlan(t *testing.T) {
 		MaxMemory:          8 << 30,
 		RootVolume:         20 << 30,
 		Volumes:            []CreateVolume{{Path: "/data"}, {Path: "/var/log", Size: 5 << 30}},
-		IP:                 "192.168.122.200",
+		IP:                 "192.168.122.200/24",
+		Gateway:            "192.168.122.1",
 		MgmtNICBridge:      "br0",
 		PCIPassthroughNICs: []string{"0000:3b:00.0", "0000:3b:00.1"},
 		BaseImage:          "/var/lib/libvirt/images/base.qcow2",
@@ -335,5 +336,100 @@ func TestDeriveDiskPath(t *testing.T) {
 		if got := deriveDiskPath(test.oldPath, "base-vm", "test-vm", test.index); got != test.want {
 			t.Errorf("deriveDiskPath(%q, %d) = %q，期望 %q", test.oldPath, test.index, got, test.want)
 		}
+	}
+}
+
+func TestBuildCreatePlanSeed(t *testing.T) {
+	dir := t.TempDir()
+	xmlPath := filepath.Join(dir, "base.xml")
+	if err := os.WriteFile(xmlPath, []byte(testBaseDomainXML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	spec := CreateSpec{
+		Name:          "seed-vm",
+		VCPU:          1,
+		MaxVCPU:       1,
+		Memory:        1 << 30,
+		MaxMemory:     1 << 30,
+		RootVolume:    10 << 30,
+		IP:            "10.10.22.180/23",
+		Gateway:       "10.10.22.1",
+		DNS:           []string{"10.10.22.1"},
+		MgmtNICBridge: "br0",
+		BaseImage:     "/base.qcow2",
+		Pool:          "default",
+		XMLPath:       xmlPath,
+	}
+
+	plan, err := buildCreatePlan(spec)
+	if err != nil {
+		t.Fatalf("buildCreatePlan 返回错误: %v", err)
+	}
+	if plan.CloudInit == nil {
+		t.Fatal("配置 ip 后应生成 cloud-init seed")
+	}
+	if plan.CloudInit.MAC != plan.MAC {
+		t.Errorf("seed MAC = %q，期望 %q", plan.CloudInit.MAC, plan.MAC)
+	}
+	if plan.CloudInit.NICName != "enp1s0" {
+		t.Errorf("seed NICName = %q，期望默认 enp1s0", plan.CloudInit.NICName)
+	}
+	if !strings.Contains(plan.CloudInit.MetaData(), "instance-id: \"seed-vm\"") {
+		t.Errorf("meta-data 缺少 instance-id: %s", plan.CloudInit.MetaData())
+	}
+	network := plan.CloudInit.NetworkConfig()
+	for _, want := range []string{plan.MAC, "10.10.22.180/23", "10.10.22.1", "dhcp4: false", "enp1s0:", "set-name: enp1s0", "to: 0.0.0.0/0"} {
+		if !strings.Contains(network, want) {
+			t.Errorf("network-config 缺少 %q:\n%s", want, network)
+		}
+	}
+	if strings.Contains(plan.CloudInit.UserData(), "manage_etc_hosts") {
+		t.Errorf("user-data 不应设置 manage_etc_hosts: %s", plan.CloudInit.UserData())
+	}
+}
+
+func TestAttachCloudInitSeed(t *testing.T) {
+	xml := `<domain>
+  <name>demo</name>
+  <devices>
+    <controller type='scsi' index='0' model='virtio-scsi'/>
+    <disk type='file' device='disk'>
+      <source file='/var/lib/libvirt/images/demo.qcow2'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+  </devices>
+</domain>`
+
+	got, err := attachCloudInitSeed(xml, "/var/lib/libvirt/images/demo-seed.iso")
+	if err != nil {
+		t.Fatalf("attachCloudInitSeed 返回错误: %v", err)
+	}
+
+	doc := etree.NewDocument()
+	if err := doc.ReadFromString(got); err != nil {
+		t.Fatalf("生成的 XML 无法解析: %v", err)
+	}
+	var cdrom *etree.Element
+	for _, disk := range doc.Root().FindElements("devices/disk") {
+		if disk.SelectAttrValue("device", "") == "cdrom" {
+			cdrom = disk
+			break
+		}
+	}
+	if cdrom == nil {
+		t.Fatal("生成的 XML 缺少 seed cdrom")
+	}
+	if got := cdrom.FindElement("source").SelectAttrValue("file", ""); got != "/var/lib/libvirt/images/demo-seed.iso" {
+		t.Errorf("seed source = %q", got)
+	}
+	if got := cdrom.FindElement("target").SelectAttrValue("bus", ""); got != "scsi" {
+		t.Errorf("seed bus = %q，期望 scsi", got)
+	}
+	if cdrom.FindElement("readonly") == nil {
+		t.Error("seed cdrom 缺少 readonly")
+	}
+	if len(doc.Root().FindElements("devices/disk")) != 2 {
+		t.Errorf("disk 数量 = %d，期望 2", len(doc.Root().FindElements("devices/disk")))
 	}
 }

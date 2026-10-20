@@ -99,6 +99,9 @@ type DomainSpec struct {
 	RootVolume             ByteSize     `yaml:"root_volume"`
 	Volumes                []VolumeSpec `yaml:"volumes"`
 	IP                     string       `yaml:"ip"`
+	Gateway                string       `yaml:"gateway"`
+	DNS                    []string     `yaml:"dns"`
+	MgmtNICName            string       `yaml:"mgmt_nic_name"`
 	MgmtNICBridge          string       `yaml:"mgmt_nic_bridge"`
 	MacvtapPassthroughNICs []string     `yaml:"macvtap_passthrough_nics"`
 	PCIPassthroughNICs     []string     `yaml:"pci_passthrough_nics"`
@@ -125,6 +128,7 @@ func LoadDomainList(path string) (*DomainList, error) {
 
 	dir := filepath.Dir(path)
 	seen := make(map[string]bool, len(list.Domains))
+	seenIP := make(map[string]bool, len(list.Domains))
 	for i := range list.Domains {
 		spec := &list.Domains[i]
 		if spec.XML != "" && !filepath.IsAbs(spec.XML) {
@@ -139,6 +143,9 @@ func LoadDomainList(path string) (*DomainList, error) {
 		if spec.MaxMemory == 0 {
 			spec.MaxMemory = spec.Memory
 		}
+		if spec.MgmtNICName == "" {
+			spec.MgmtNICName = "enp1s0"
+		}
 		if err := spec.validate(); err != nil {
 			return nil, fmt.Errorf("domains[%d]（%s）: %w", i, spec.Name, err)
 		}
@@ -146,6 +153,14 @@ func LoadDomainList(path string) (*DomainList, error) {
 			return nil, fmt.Errorf("虚拟机名称 %q 重复", spec.Name)
 		}
 		seen[spec.Name] = true
+		if spec.IP != "" {
+			ip, _, _ := net.ParseCIDR(spec.IP)
+			key := ip.String()
+			if seenIP[key] {
+				return nil, fmt.Errorf("ip %q 重复", spec.IP)
+			}
+			seenIP[key] = true
+		}
 	}
 
 	return &list, nil
@@ -199,10 +214,35 @@ func (s *DomainSpec) validate() error {
 	if _, err := os.Stat(s.XML); err != nil {
 		return fmt.Errorf("基础 XML 不可用: %w", err)
 	}
-	if s.IP != "" {
-		ip := net.ParseIP(s.IP)
-		if ip == nil || ip.To4() == nil {
-			return fmt.Errorf("ip %q 不是 IPv4 地址", s.IP)
+	if s.IP == "" {
+		if s.Gateway != "" {
+			return errors.New("gateway 需要配合 ip 使用")
+		}
+		if len(s.DNS) > 0 {
+			return errors.New("dns 需要配合 ip 使用")
+		}
+	} else {
+		ip, network, err := net.ParseCIDR(s.IP)
+		if err != nil || ip.To4() == nil {
+			return fmt.Errorf("ip %q 不是 IPv4 CIDR（示例：10.10.22.180/23）", s.IP)
+		}
+		if s.Gateway == "" {
+			return errors.New("配置 ip 时必须指定 gateway")
+		}
+		gateway := net.ParseIP(s.Gateway)
+		if gateway == nil || gateway.To4() == nil {
+			return fmt.Errorf("gateway %q 不是 IPv4 地址", s.Gateway)
+		}
+		if !network.Contains(gateway) {
+			return fmt.Errorf("gateway %q 不在 ip %q 的网段内", s.Gateway, s.IP)
+		}
+		for _, dns := range s.DNS {
+			if value := net.ParseIP(dns); value == nil || value.To4() == nil {
+				return fmt.Errorf("dns %q 不是 IPv4 地址", dns)
+			}
+		}
+		if s.ISO != "" {
+			return errors.New("iso 安装模式不能同时配置 ip")
 		}
 	}
 
@@ -251,6 +291,9 @@ func (s *DomainSpec) ToCreateSpec() virt.CreateSpec {
 		RootVolume:             uint64(s.RootVolume),
 		Volumes:                toCreateVolumes(s.Volumes, s.RootVolume),
 		IP:                     s.IP,
+		Gateway:                s.Gateway,
+		DNS:                    s.DNS,
+		MgmtNICName:            s.MgmtNICName,
 		MgmtNICBridge:          s.MgmtNICBridge,
 		MacvtapPassthroughNICs: s.MacvtapPassthroughNICs,
 		PCIPassthroughNICs:     s.PCIPassthroughNICs,

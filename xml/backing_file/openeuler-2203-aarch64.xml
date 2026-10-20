@@ -12,6 +12,7 @@
     <type arch='aarch64' machine='virt-6.2'>hvm</type>
     <loader readonly='yes' type='pflash'>/usr/share/edk2/aarch64/QEMU_EFI-pflash.raw</loader>
     <nvram>/var/lib/libvirt/qemu/nvram/openeuler-2203-aarch64_VARS.fd</nvram>
+    <boot dev='cdrom'/>
     <boot dev='hd'/>
   </os>
   <features>
@@ -31,6 +32,12 @@
       <target dev='vda' bus='virtio'/>
       <address type='pci' domain='0x0000' bus='0x05' slot='0x00' function='0x0'/>
     </disk>
+    <disk type='file' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <target dev='sda' bus='scsi'/>
+      <readonly/>
+      <address type='drive' controller='0' bus='0' target='0' unit='0'/>
+    </disk>
     <controller type='usb' index='0' model='qemu-xhci' ports='15'>
       <address type='pci' domain='0x0000' bus='0x02' slot='0x00' function='0x0'/>
     </controller>
@@ -38,9 +45,6 @@
       <address type='pci' domain='0x0000' bus='0x03' slot='0x00' function='0x0'/>
     </controller>
     <controller type='pci' index='0' model='pcie-root'/>
-    <controller type='virtio-serial' index='0'>
-      <address type='pci' domain='0x0000' bus='0x04' slot='0x00' function='0x0'/>
-    </controller>
     <controller type='pci' index='1' model='pcie-root-port'>
       <model name='pcie-root-port'/>
       <target chassis='1' port='0x8'/>
@@ -71,8 +75,16 @@
       <target chassis='6' port='0xd'/>
       <address type='pci' domain='0x0000' bus='0x00' slot='0x01' function='0x5'/>
     </controller>
-    <interface type='network'>
-      <source network='default'/>
+    <controller type='pci' index='7' model='pcie-root-port'>
+      <model name='pcie-root-port'/>
+      <target chassis='7' port='0xe'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x01' function='0x6'/>
+    </controller>
+    <controller type='virtio-serial' index='0'>
+      <address type='pci' domain='0x0000' bus='0x04' slot='0x00' function='0x0'/>
+    </controller>
+    <interface type='bridge'>
+      <source bridge='br0'/>
       <model type='virtio'/>
       <address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/>
     </interface>
@@ -90,6 +102,9 @@
     </channel>
     <input type='keyboard' bus='usb'>
       <address type='usb' bus='0' port='1'/>
+    </input>
+    <input type='tablet' bus='usb'>
+      <address type='usb' bus='0' port='2'/>
     </input>
     <graphics type='vnc' port='-1' autoport='yes' listen='0.0.0.0'>
       <listen type='address' address='0.0.0.0'/>

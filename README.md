@@ -78,10 +78,10 @@ domain:
 
 - 根盘来源三选一：`domain_image` 完整拷贝到 `<name>.qcow2`；`base_image` 创建 overlay；`iso` 创建空盘并从 ISO 启动安装；
 - 生成 XML 时自动补 `<memballoon model='virtio'/>`，否则 `currentMemory` 无法低于 `memory`；
-- 再用基础 XML 生成新 XML，替换名称、CPU、内存、磁盘路径、网桥/MAC；
+- 再用基础 XML 生成新 XML，替换名称、CPU、内存、磁盘路径、网桥/MAC；配置 `ip` 时生成 cloud-init seed 并挂成 cdrom；
 - 最后定义并启动；`--no-start` 只定义，`--dry-run` 只打印生成的 XML。
 
-字段：`name`、`host`（可选，多宿主机时必填）、`vcpu`、`max_vcpu`、`memory`、`max_memory`、`root_volume`、`volumes`、`ip`、`mgmt_nic_bridge`、`macvtap_passthrough_nics`、`pci_passthrough_nics`（可选）、`xml`、`domain_image`/`base_image`/`iso`（三选一）、`pool`（可选，默认 `default`）。
+字段：`name`、`host`（可选，多宿主机时必填）、`vcpu`、`max_vcpu`、`memory`、`max_memory`、`root_volume`、`volumes`、`ip`、`gateway`、`dns`、`mgmt_nic_name`、`mgmt_nic_bridge`、`macvtap_passthrough_nics`、`pci_passthrough_nics`（可选）、`xml`、`domain_image`/`base_image`/`iso`（三选一）、`pool`（可选，默认 `default`）。
 
 `volumes` 是额外的挂载路径列表，例如 `/data`。每项可以只写路径，也可以写 `{path: /data, size: 50GiB}`；不写 `size` 时默认等于 `root_volume`。文件名是 `<name>-<路径>`（路径中的 `/` 替换为 `-`），按顺序挂为 `vdb`、`vdc`…。libvirt 的块设备 XML 没有“挂载点”字段，guest 内仍需通过 fstab/cloud-init 挂载。
 
@@ -99,7 +99,7 @@ domain:
 
 输出宿主机、网卡名和 PCI 地址，直接填到 `pci_passthrough_nics`。底层使用的是 libvirt 的 node device 信息；临时排查也可以用 `virsh nodedev-list --cap net` 后跟 `virsh nodedev-dumpxml <device>`。
 
-`ip` 仅在 `mgmt_nic_bridge` 能对应到 libvirt 网络时写入静态 DHCP；否则只告警，不阻断创建。overlay 的 `root_volume` 不能小于基础镜像的虚拟大小。
+`ip` 是静态 IPv4 CIDR（如 `10.10.22.180/23`），配置后必须同时给 `gateway`，可选 `dns`；`mgmt_nic_name` 是 guest 内管理网卡名，默认 `enp1s0`，如果基础镜像里不是这个名字必须显式指定，否则 cloud-init 会写 `ifcfg-<名字>`，对不上实际网卡。创建时会生成一个 label 为 `CIDATA` 的 cloud-init NoCloud seed ISO，上传到存储池的 `<name>-seed.iso`，并以 SCSI 光驱挂给虚拟机；`network-config` 按生成的管理网卡 MAC 匹配，设置静态地址，不依赖 DHCP。基础镜像里必须已安装并启用 cloud-init（datasource 含 NoCloud，且未禁用 network config），并且不要再写死静态网卡配置；cloud-init 还会按镜像里的 `disable_root`/`ssh_pwauth` 处理 root SSH，需要 root 密码登录时把这两项改成 `false`/`true`。基础镜像没有 seed 启动时，cloud-init 的 DataSourceNone 会把网络改成 DHCP，不要把基础镜像原来的静态 IP 当成长期配置；`iso` 安装模式不能同时配置 `ip`。overlay 的 `root_volume` 不能小于基础镜像的虚拟大小。
 
 ### 批量开关机
 
@@ -158,6 +158,7 @@ domain:
 
 ```text
 cmd/vm_control/          CLI 入口、命令与参数
+pkg/cloudinit/          cloud-init seed 配置与 ISO 生成
 pkg/conf/               my_config 与 domain-list 的解析
 pkg/virt/               连接池、虚拟机选择、批量执行、快照、创建
 pkg/report/             批量结果输出

@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/beevik/etree"
+
+	"github.com/DesistDaydream/go-libvirt/pkg/cloudinit"
 )
 
 type diskPlan struct {
@@ -23,8 +25,8 @@ type createPlan struct {
 	XML           string
 	Disks         []diskPlan
 	MAC           string
-	NetworkName   string
 	MgmtNICBridge string
+	CloudInit     *cloudinit.Config
 }
 
 func buildCreatePlan(spec CreateSpec) (*createPlan, error) {
@@ -74,6 +76,10 @@ func buildCreatePlan(spec CreateSpec) (*createPlan, error) {
 	if err != nil {
 		return nil, err
 	}
+	cloudInit, err := buildCloudInit(spec, mac)
+	if err != nil {
+		return nil, err
+	}
 
 	nameElement.SetText(spec.Name)
 	if err := setMemory(root, spec); err != nil {
@@ -90,8 +96,7 @@ func buildCreatePlan(spec CreateSpec) (*createPlan, error) {
 		return nil, err
 	}
 
-	networkName, err := setInterface(root, spec, mac)
-	if err != nil {
+	if err := setInterface(root, spec, mac); err != nil {
 		return nil, err
 	}
 	if err := addMacvtapPassthroughNICs(root, spec.MacvtapPassthroughNICs); err != nil {
@@ -117,8 +122,8 @@ func buildCreatePlan(spec CreateSpec) (*createPlan, error) {
 		XML:           string(body),
 		Disks:         disks,
 		MAC:           mac,
-		NetworkName:   networkName,
 		MgmtNICBridge: spec.MgmtNICBridge,
+		CloudInit:     cloudInit,
 	}, nil
 }
 
@@ -406,6 +411,58 @@ func nextSCSITargetDev(root *etree.Element) (string, error) {
 	return "", errors.New("scsi 磁盘槽位已用完")
 }
 
+// attachCloudInitSeed 把 cloud-init seed 作为 SCSI 光驱挂到域 XML。
+func attachCloudInitSeed(xml, path string) (string, error) {
+	doc := etree.NewDocument()
+	if err := doc.ReadFromString(xml); err != nil {
+		return "", fmt.Errorf("解析虚拟机 XML 失败: %w", err)
+	}
+	root := doc.Root()
+	if root == nil {
+		return "", errors.New("虚拟机 XML 缺少 <domain>")
+	}
+	devices := root.FindElement("devices")
+	if devices == nil {
+		return "", errors.New("虚拟机 XML 缺少 <devices>")
+	}
+
+	hasSCSI := false
+	for _, controller := range root.FindElements("devices/controller") {
+		if controller.SelectAttrValue("type", "") == "scsi" {
+			hasSCSI = true
+			break
+		}
+	}
+	if !hasSCSI {
+		return "", errors.New("基础 XML 缺少 scsi 控制器，无法挂载 cloud-init seed")
+	}
+
+	dev, err := nextSCSITargetDev(root)
+	if err != nil {
+		return "", err
+	}
+
+	disk := etree.NewElement("disk")
+	disk.CreateAttr("type", "file")
+	disk.CreateAttr("device", "cdrom")
+	driver := disk.CreateElement("driver")
+	driver.CreateAttr("name", "qemu")
+	driver.CreateAttr("type", "raw")
+	disk.CreateElement("source").CreateAttr("file", path)
+	target := disk.CreateElement("target")
+	target.CreateAttr("dev", dev)
+	target.CreateAttr("bus", "scsi")
+	disk.CreateElement("readonly")
+	devices.AddChild(disk)
+
+	doc.Indent(2)
+	body, err := doc.WriteToBytes()
+	if err != nil {
+		return "", fmt.Errorf("生成虚拟机 XML 失败: %w", err)
+	}
+	return string(body), nil
+}
+
 func removeDiskBootOrders(root *etree.Element) {
 	for _, disk := range root.FindElements("devices/disk") {
 		for _, boot := range disk.FindElements("boot") {
@@ -519,42 +576,55 @@ func deriveDiskPath(oldPath, baseName, name string, index int) string {
 	return filepath.Join(filepath.Dir(oldPath), newBase)
 }
 
-func setInterface(root *etree.Element, spec CreateSpec, mac string) (string, error) {
+func setInterface(root *etree.Element, spec CreateSpec, mac string) error {
 	devices := root.FindElement("devices")
 	if devices == nil {
-		return "", errors.New("基础 XML 缺少 <devices>")
+		return errors.New("基础 XML 缺少 <devices>")
 	}
 
 	interfaces := root.FindElements("devices/interface")
-	networkName := ""
-	if len(interfaces) > 0 {
-		if source := interfaces[0].FindElement("source"); source != nil {
-			networkName = source.SelectAttrValue("network", "")
-		}
-	}
-
 	if spec.MgmtNICBridge == "" {
 		if len(interfaces) == 0 {
-			return "", errors.New("基础 XML 没有网络接口，且未指定 mgmt_nic_bridge")
+			return errors.New("基础 XML 没有网络接口，且未指定 mgmt_nic_bridge")
 		}
 		setMAC(interfaces[0], mac)
-		return networkName, nil
+		return nil
 	}
 
-	for _, iface := range interfaces {
-		devices.RemoveChild(iface)
+	if len(interfaces) == 0 {
+		devices.AddChild(newBridgeInterface(spec.MgmtNICBridge, mac))
+		return nil
 	}
+
+	iface := interfaces[0]
+	for _, extra := range interfaces[1:] {
+		devices.RemoveChild(extra)
+	}
+	iface.CreateAttr("type", "bridge")
+	source := iface.FindElement("source")
+	if source == nil {
+		source = etree.NewElement("source")
+		iface.InsertChildAt(0, source)
+	}
+	source.RemoveAttr("network")
+	source.RemoveAttr("dev")
+	source.RemoveAttr("mode")
+	source.RemoveAttr("portgroup")
+	source.CreateAttr("bridge", spec.MgmtNICBridge)
+	if iface.FindElement("model") == nil {
+		iface.CreateElement("model").CreateAttr("type", "virtio")
+	}
+	setMAC(iface, mac)
+	return nil
+}
+
+func newBridgeInterface(bridge, mac string) *etree.Element {
 	iface := etree.NewElement("interface")
 	iface.CreateAttr("type", "bridge")
-	source := iface.CreateElement("source")
-	source.CreateAttr("bridge", spec.MgmtNICBridge)
-	model := iface.CreateElement("model")
-	model.CreateAttr("type", "virtio")
-	macElement := iface.CreateElement("mac")
-	macElement.CreateAttr("address", mac)
-	devices.AddChild(iface)
-
-	return networkName, nil
+	iface.CreateElement("source").CreateAttr("bridge", bridge)
+	iface.CreateElement("model").CreateAttr("type", "virtio")
+	iface.CreateElement("mac").CreateAttr("address", mac)
+	return iface
 }
 
 func setMAC(iface *etree.Element, mac string) {

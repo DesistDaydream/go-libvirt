@@ -1,24 +1,31 @@
 # vm-control domain list
-# 创建：vm-control domain create -f domain-list.yaml hdf-01
+# 创建：vm-control domain create -f domain-list.yaml demo
 domains:
-  - name: hdf-01
+  - name: demo
     host: 10.10.22.62
     vcpu: 2
     max_vcpu: 4
     memory: 4GiB
     max_memory: 8GiB
     root_volume: 100GiB
-    volumes:
-      - path: /home
-    # 网络配置
-    # ip: 192.168.122.200
-    mgmt_nic_bridge: virbr0
-    macvtap_passthrough_nics:
-      - enp189s0f1
+    # 可以为虚拟机添加额外的磁盘
+    # volumes:
+    #   - path: /home
+    # ######### 网络配置 #########
+    # 配置 ip 后会生成 cloud-init seed，基础镜像里必须已启用 cloud-init。
+    ip: 10.10.22.179/23
+    gateway: 10.10.22.1
+    dns:
+      - 223.5.5.5
+    mgmt_nic_bridge: br0
+    # 可以为虚拟机添加额外的网卡
+    # macvtap_passthrough_nics:
+    #   - enp189s0f1
     # pci_passthrough_nics:
     #   - "0000:bd:00.0"
     #   - "0000:bd:00.1"
-    # 安装方式。创建虚拟机要使用的安装方式
+    # ########## 安装方式 ##########
+    # 创建虚拟机要使用的安装方式
     # iso: /opt/iso/openEuler-22.03-LTS-SP1-everything-aarch64-dvd.iso
     domain_image: /var/lib/libvirt/images/backing_file/openeuler-2203-aarch64.qcow2
     # base_image: /var/lib/libvirt/images/backing_file/openeuler-2203-aarch64.qcow2

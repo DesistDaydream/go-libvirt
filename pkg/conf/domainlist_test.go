@@ -169,3 +169,97 @@ func TestLoadDomainListMirrorAndPassthrough(t *testing.T) {
 		t.Fatal("同时指定 macvtap_passthrough_nics 和 pci_passthrough_nics 时应返回错误")
 	}
 }
+
+func loadCloudInitList(t *testing.T, network string) (*DomainList, error) {
+	t.Helper()
+	dir := t.TempDir()
+	xmlPath := filepath.Join(dir, "base.xml")
+	if err := os.WriteFile(xmlPath, []byte("<domain/>"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	listPath := filepath.Join(dir, "domain-list.yaml")
+	content := `domains:
+  - name: test-01
+    vcpu: 2
+    memory: 2GiB
+    root_volume: 10GiB
+    xml: base.xml
+    domain_image: /domain.qcow2
+` + network
+	if err := os.WriteFile(listPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return LoadDomainList(listPath)
+}
+
+func TestLoadDomainListCloudInit(t *testing.T) {
+	list, err := loadCloudInitList(t, "    ip: 10.10.22.180/23\n    gateway: 10.10.22.1\n    dns:\n      - 10.10.22.1\n")
+	if err != nil {
+		t.Fatalf("LoadDomainList 返回错误: %v", err)
+	}
+	spec := list.Domains[0]
+	if spec.IP != "10.10.22.180/23" || spec.Gateway != "10.10.22.1" {
+		t.Errorf("ip/gateway = %q/%q", spec.IP, spec.Gateway)
+	}
+	if len(spec.DNS) != 1 || spec.DNS[0] != "10.10.22.1" {
+		t.Errorf("dns = %v", spec.DNS)
+	}
+	createSpec := spec.ToCreateSpec()
+	if createSpec.Gateway != spec.Gateway || createSpec.IP != spec.IP {
+		t.Errorf("ToCreateSpec 未传递 ip/gateway: %+v", createSpec)
+	}
+}
+
+func TestLoadDomainListCloudInitValidation(t *testing.T) {
+	cases := []struct {
+		name    string
+		network string
+	}{
+		{"plain ip", "    ip: 10.10.22.180\n    gateway: 10.10.22.1\n"},
+		{"no gateway", "    ip: 10.10.22.180/23\n"},
+		{"gateway outside", "    ip: 10.10.22.180/23\n    gateway: 10.10.24.1\n"},
+		{"dns without ip", "    dns:\n      - 10.10.22.1\n"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := loadCloudInitList(t, test.network); err == nil {
+				t.Fatal("期望返回错误，实际没有")
+			}
+		})
+	}
+}
+
+func TestLoadDomainListRejectsDuplicateIP(t *testing.T) {
+	dir := t.TempDir()
+	xmlPath := filepath.Join(dir, "base.xml")
+	if err := os.WriteFile(xmlPath, []byte("<domain/>"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	listPath := filepath.Join(dir, "domain-list.yaml")
+	content := `domains:
+  - name: test-01
+    vcpu: 2
+    memory: 2GiB
+    root_volume: 10GiB
+    xml: base.xml
+    domain_image: /domain.qcow2
+    ip: 10.10.22.180/23
+    gateway: 10.10.22.1
+  - name: test-02
+    vcpu: 2
+    memory: 2GiB
+    root_volume: 10GiB
+    xml: base.xml
+    domain_image: /domain.qcow2
+    ip: 10.10.22.180/23
+    gateway: 10.10.22.1
+`
+	if err := os.WriteFile(listPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadDomainList(listPath); err == nil {
+		t.Fatal("重复 ip 应返回错误")
+	}
+}
