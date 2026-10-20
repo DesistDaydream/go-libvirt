@@ -2,3 +2,4 @@
 /.tmp-*/
 vm-control
 my_config.yaml*
+/agent_tmp
